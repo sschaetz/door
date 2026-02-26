@@ -6,7 +6,7 @@ const int ENDSTOP_PIN = 7;
 
 // -------- Config --------
 const bool ENDSTOP_ACTIVE_LOW = false;
-const bool HOME_DIRECTION_FORWARD = true;
+const bool HOME_DIRECTION_FORWARD = false;
 
 const int FULL_STEPS = 200;     // 1.8° motor
 const int MICROSTEPS = 8;       // must match driver DIP
@@ -27,6 +27,14 @@ long stepsPerOutputRev() {
 
 long stepsFor180deg() {
   return stepsPerOutputRev() / 2;
+}
+
+long stepsFor190deg() {
+  return stepsPerOutputRev() * 190 / 360;
+}
+
+long stepsForDeg(long deg) {
+  return stepsPerOutputRev() * deg / 360;
 }
 
 unsigned long stepDelayForRPM(float rpm) {
@@ -97,12 +105,11 @@ void setup() {
 // -------- Main loop --------
 
 void loop() {
-  long maxPos = stepsFor180deg();
+  long maxPos = stepsForDeg(200);
 
   moveTo(maxPos, RUN_RPM);  // go 180° away
-  delay(300);
+  delay(6000);
 
   moveTo(0, RUN_RPM);       // return home
-  delay(300);
+  delay(6000);
 }
-
