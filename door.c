@@ -19,18 +19,13 @@ const unsigned int PULSE_HIGH_US = 5;
 
 long pos_steps = 0;
 
+// Safety: when moving away from home, endstop must clear within this travel
+const long CLEAR_WITHIN_DEG = 10;   // adjust (5..20 deg typical)
+
 // -------- Helpers --------
 
 long stepsPerOutputRev() {
   return (long)FULL_STEPS * MICROSTEPS * GEAR_RATIO;
-}
-
-long stepsFor180deg() {
-  return stepsPerOutputRev() / 2;
-}
-
-long stepsFor190deg() {
-  return stepsPerOutputRev() * 190 / 360;
 }
 
 long stepsForDeg(long deg) {
@@ -48,6 +43,20 @@ unsigned long stepDelayForRPM(float rpm) {
 bool endstopActive() {
   int v = digitalRead(ENDSTOP_PIN);
   return ENDSTOP_ACTIVE_LOW ? (v == LOW) : (v == HIGH);
+}
+
+void faultStop(const char* reason) {
+  // Stop pulses and disable driver.
+  digitalWrite(STEP_PIN, LOW);
+  digitalWrite(ENA_PIN, HIGH); // disable (common active-low)
+  // Optional: blink LED on pin 13 so you see it's in fault
+  pinMode(LED_BUILTIN, OUTPUT);
+  while (true) {
+    digitalWrite(LED_BUILTIN, HIGH);
+    delay(200);
+    digitalWrite(LED_BUILTIN, LOW);
+    delay(200);
+  }
 }
 
 void stepOnce(unsigned long low_us, bool forward) {
@@ -79,11 +88,30 @@ void home() {
 
 void moveTo(long target, float rpm) {
   unsigned long low_us = stepDelayForRPM(rpm);
-
   bool forward = (target > pos_steps);
+
+  // Safety check only when moving away from home (pos increasing)
+  const bool movingAwayFromHome = forward && (pos_steps == 0);
+
+  long clear_deadline = 0;
+  if (movingAwayFromHome) {
+    // If we're sitting on the endstop, it must clear soon after we start moving away
+    if (endstopActive()) {
+      clear_deadline = pos_steps + stepsForDeg(CLEAR_WITHIN_DEG);
+    }
+  }
 
   while (pos_steps != target) {
     stepOnce(low_us, forward);
+
+    // Enforce: endstop must become inactive soon when moving away
+    if (movingAwayFromHome && clear_deadline != 0) {
+      if (!endstopActive()) {
+        clear_deadline = 0; // cleared -> OK
+      } else if (pos_steps >= clear_deadline) {
+        faultStop("Endstop did not clear while moving away");
+      }
+    }
   }
 }
 
@@ -105,11 +133,12 @@ void setup() {
 // -------- Main loop --------
 
 void loop() {
-  long maxPos = stepsForDeg(200);
+  long maxPos = stepsForDeg(230);
 
-  moveTo(maxPos, RUN_RPM);  // go 180° away
+  moveTo(maxPos, RUN_RPM);  // go away from home
   delay(6000);
 
   moveTo(0, RUN_RPM);       // return home
   delay(6000);
 }
+
